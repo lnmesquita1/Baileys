@@ -1,5 +1,8 @@
 import { Boom } from '@hapi/boom'
-import { decodeMessageNode } from '../../Utils/decode-wa-message'
+import pino from 'pino'
+import { proto } from '../../../WAProto/index.js'
+import type { SignalRepositoryWithLIDStore } from '../../Types/Signal'
+import { decodeMessageNode, decryptMessageNode } from '../../Utils/decode-wa-message'
 import type { BinaryNode } from '../../WABinary'
 
 const ME_ID = '5511999999999@s.whatsapp.net'
@@ -82,5 +85,71 @@ describe('decodeMessageNode', () => {
 			expect(result.fullMessage.key.participant).toBe(PEER_ID)
 			expect(result.author).toBe(PEER_ID)
 		})
+	})
+})
+
+describe('decryptMessageNode deviceSentMessage context', () => {
+	const decrypt = async (decodedMessage: proto.IMessage) => {
+		const stanza = message({ id: 'DEVICE_MSG', from: ME_ID, recipient: PEER_ID })
+		stanza.content = [{ tag: 'plaintext', attrs: {}, content: proto.Message.encode(decodedMessage).finish() }]
+		const repository = {
+			lidMapping: { getLIDForPN: async () => undefined }
+		} as unknown as SignalRepositoryWithLIDStore
+		const result = decryptMessageNode(stanza, ME_ID, ME_LID, repository, pino({ level: 'silent' }))
+		await result.decrypt()
+		return result.fullMessage.message
+	}
+
+	it('preserves the outer message secret when extracting a device-sent message', async () => {
+		const messageSecret = Buffer.alloc(32, 7)
+		const result = await decrypt({
+			deviceSentMessage: { destinationJid: PEER_ID, message: { conversation: 'Hello' } },
+			messageContextInfo: { messageSecret, deviceListMetadataVersion: 2 }
+		})
+
+		expect(result?.conversation).toBe('Hello')
+		expect(result?.deviceSentMessage).toBeNull()
+		expect(result?.messageContextInfo?.messageSecret).toEqual(messageSecret)
+		expect(result?.messageContextInfo?.deviceListMetadataVersion).toBe(2)
+	})
+
+	it('preserves the outer secret when the inner context contains other metadata', async () => {
+		const messageSecret = Buffer.alloc(32, 7)
+		const result = await decrypt({
+			deviceSentMessage: {
+				message: { conversation: 'Hello', messageContextInfo: { deviceListMetadataVersion: 3 } }
+			},
+			messageContextInfo: { messageSecret, deviceListMetadataVersion: 2 }
+		})
+
+		expect(result?.messageContextInfo?.messageSecret).toEqual(messageSecret)
+		expect(result?.messageContextInfo?.deviceListMetadataVersion).toBe(3)
+	})
+
+	it('gives the inner message secret precedence over the envelope secret', async () => {
+		const innerSecret = Buffer.alloc(32, 9)
+		const result = await decrypt({
+			deviceSentMessage: {
+				message: { conversation: 'Hello', messageContextInfo: { messageSecret: innerSecret } }
+			},
+			messageContextInfo: { messageSecret: Buffer.alloc(32, 7) }
+		})
+
+		expect(result?.messageContextInfo?.messageSecret).toEqual(innerSecret)
+	})
+
+	it('extracts a device-sent message without adding a missing context', async () => {
+		const result = await decrypt({ deviceSentMessage: { message: { conversation: 'Hello' } } })
+
+		expect(result?.conversation).toBe('Hello')
+		expect(result?.messageContextInfo).toBeNull()
+	})
+
+	it('leaves the secret intact for messages without a device-sent envelope', async () => {
+		const messageSecret = Buffer.alloc(32, 7)
+		const result = await decrypt({ conversation: 'Hello', messageContextInfo: { messageSecret } })
+
+		expect(result?.conversation).toBe('Hello')
+		expect(result?.messageContextInfo?.messageSecret).toEqual(messageSecret)
 	})
 })

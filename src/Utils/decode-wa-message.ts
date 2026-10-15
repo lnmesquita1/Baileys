@@ -339,7 +339,15 @@ export const decryptMessageNode = (
 						let msg: proto.IMessage = proto.Message.decode(
 							e2eType !== 'plaintext' ? unpadRandomMax16(msgBuffer) : msgBuffer
 						)
+						const envelopeContextInfo = msg.deviceSentMessage?.message ? msg.messageContextInfo : undefined
 						msg = msg.deviceSentMessage?.message || msg
+						if (envelopeContextInfo) {
+							msg.messageContextInfo = {
+								...envelopeContextInfo,
+								...msg.messageContextInfo
+							}
+						}
+
 						if (msg.senderKeyDistributionMessage) {
 							//eslint-disable-next-line max-depth
 							try {
