@@ -40,7 +40,7 @@ corepack enable
 yarn install
 ```
 
-Node ≥ 20 (enforced by `engines` and `preinstall`).
+Node ≥ 22.19.0 (enforced by `engines` and `preinstall`).
 
 ## Daily commands
 

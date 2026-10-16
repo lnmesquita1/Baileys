@@ -50,7 +50,7 @@ export const getUrlInfo = async (
 
 		const info = await getLinkPreview(previewLink, {
 			...opts.fetchOpts,
-			followRedirects: 'follow',
+			followRedirects: 'manual',
 			handleRedirects: (baseURL: string, forwardedURL: string) => {
 				const urlObj = new URL(baseURL)
 				const forwardedURLObj = new URL(forwardedURL)
